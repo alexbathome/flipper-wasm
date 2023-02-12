@@ -1,0 +1,91 @@
+@using flipper_wasm.Processor
+@inject IJSRuntime JSRuntime
+@inject IImageFlipperService ImageFlipperService
+@implements IAsyncDisposable
+
+
+
+@page "/"
+
+
+<PageTitle>Flipper</PageTitle>
+
+<body>
+    <div class="title-holder">
+        <h1 class="title">Flipper!</h1>
+    </div>
+    <div class="action">
+
+        <div @ref="dropZoneElement" class="drop-zone">
+            <p class="drag-and-drop">Drag and Drop!</p>
+            <InputFile OnChange="@OnChange" @ref="inputFile" class="inputFile" />
+        </div>
+
+        <div>
+            @* Display the uploaded image *@
+            <img src="@src" class="output-image"/>
+        </div> 
+
+    </div>
+
+
+</body>
+
+@code {
+    ElementReference dropZoneElement;
+    InputFile inputFile;
+
+    IJSObjectReference _module;
+    IJSObjectReference _dropZoneInstance;
+
+    IImageFlipperService _imageFlipper;
+
+    string src;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Load deps? 
+            _imageFlipper = new ImageFlipperService();
+
+
+            // Load the JS file
+            _module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./dropzone.js");
+
+            // Initialize the drop zone
+            _dropZoneInstance = await _module.InvokeAsync<IJSObjectReference>("initializeFileDropZone", dropZoneElement, inputFile.Element);
+        }
+    }
+
+    // Called when a new file is uploaded
+    async Task OnChange(InputFileChangeEventArgs e)
+    {
+        // input stream
+        using var stream = e.File.OpenReadStream();
+        
+        // output stream
+        using var ms = await _imageFlipper.FlipImage(stream);
+        
+        await stream.CopyToAsync(ms);
+        src = "data:" + e.File.ContentType + ";base64," + Convert.ToBase64String(ms.ToArray());
+    }
+
+    // Unregister the drop zone events
+    public async ValueTask DisposeAsync()
+    {
+        try {
+            if (_dropZoneInstance != null)
+            {
+                await _dropZoneInstance.InvokeVoidAsync("dispose");
+                await _dropZoneInstance.DisposeAsync();
+            }
+        
+            if (_module != null)
+            {
+                await _module.DisposeAsync();
+            }
+        } catch (JSDisconnectedException) {
+        }
+    }
+}
